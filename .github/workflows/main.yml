@@ -1,4 +1,4 @@
-name: B
+name: M
 
 on:
   workflow_dispatch:
@@ -10,53 +10,59 @@ jobs:
     env:
       GIT_TERMINAL_PROMPT: 0
       GIT_ASKPASS: /bin/true
+      ARCH: arm64
+      SUBARCH: arm64
+      KBUILD_BUILD_USER: builder
+      KBUILD_BUILD_HOST: github-actions
 
     steps:
+      # =========================
+      # DEPENDENCIES
+      # =========================
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-            git curl zip unzip wget bc bison flex \
+            git curl zip unzip bc bison flex \
             build-essential libssl-dev libelf-dev \
             python3 clang llvm lld
 
       # =========================
-      # FIXED CLONE (NO AUTH PROMPT EVER)
+      # CLONE (VALID + NO AUTH PROMPT)
       # =========================
-      - name: Clone kernel (FORCED NO AUTH MODE)
+      - name: Clone MIUI Ginkgo Kernel (STABLE)
         run: |
           git -c credential.helper= \
               -c core.askPass= \
-              clone --depth=1 -b lineage-18.1 \
-              https://github.com/LineageOS/android_kernel_xiaomi_ginkgo.git kernel
+              clone --depth=1 -b MiuiR-WIP \
+              https://github.com/kutemeikito/android_kernel_xiaomi_ginkgo.git kernel
 
-      - name: Setup build folder
+      # =========================
+      # PREP BUILD DIR
+      # =========================
+      - name: Setup kernel directory
         run: |
           cd kernel
           mkdir -p out
 
-      - name: Export build env
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=runner" >> $GITHUB_ENV
-
       # =========================
-      # DEFCONFIG SAFE MODE
+      # DEFCONFIG (MIUI STOCK)
       # =========================
-      - name: Load defconfig
+      - name: Load MIUI defconfig
         run: |
           cd kernel
-          make O=out ARCH=arm64 ginkgo_defconfig
+          make O=out ARCH=arm64 ginkgo-stock_defconfig
 
-      - name: Fix kconfig (NO INTERACTIVE LOOP)
+      # =========================
+      # FORCE NON INTERACTIVE FIX
+      # =========================
+      - name: Fix config (NO PROMPT SAFE MODE)
         run: |
           cd kernel
           yes "" | make O=out ARCH=arm64 olddefconfig
 
       # =========================
-      # BUILD KERNEL (LLVM ONLY - STABLE)
+      # BUILD (LLVM ONLY)
       # =========================
       - name: Build kernel
         run: |
@@ -74,12 +80,12 @@ jobs:
       # =========================
       # CHECK OUTPUT
       # =========================
-      - name: Verify output
+      - name: Check output
         run: |
-          find kernel/out/arch/arm64/boot -type f || true
+          ls -lah kernel/out/arch/arm64/boot || true
 
       # =========================
-      # ANYKERNEL PACKAGING
+      # ANYKERNEL3 PACK
       # =========================
       - name: Clone AnyKernel3
         run: |
@@ -93,7 +99,7 @@ jobs:
       - name: Create flashable zip
         run: |
           cd AnyKernel3
-          zip -r9 ../Kernel-Ginkgo-Stable.zip ./*
+          zip -r9 ../MIUI-Ginkgo-Kernel.zip ./*
 
       # =========================
       # UPLOAD RESULT
@@ -101,5 +107,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Ginkgo-Stable
-          path: Kernel-Ginkgo-Stable.zip
+          name: MIUI-Ginkgo-Kernel
+          path: MIUI-Ginkgo-Kernel.zip
