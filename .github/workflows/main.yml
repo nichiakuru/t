@@ -7,6 +7,9 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    env:
+      GIT_TERMINAL_PROMPT: 0
+
     steps:
       - name: Install dependencies
         run: |
@@ -14,15 +17,17 @@ jobs:
           sudo apt install -y \
             git curl zip unzip wget bc bison flex \
             build-essential libssl-dev libelf-dev \
-            python3 python3-pip \
-            clang lld llvm
+            python3 clang lld llvm
 
       - name: Clone stable kernel (LineageOS ginkgo)
         run: |
+          git config --global credential.helper ""
+          git config --global --unset http.extraheader || true
+
           git clone --depth=1 -b lineage-18.1 \
             https://github.com/LineageOS/android_kernel_xiaomi_ginkgo.git kernel
 
-      - name: Setup build environment
+      - name: Setup directory
         run: |
           cd kernel
           mkdir -p out
@@ -31,15 +36,15 @@ jobs:
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=builder" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=github-actions" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=runner" >> $GITHUB_ENV
 
-      - name: Generate defconfig (SAFE MODE)
+      - name: Load defconfig
         run: |
           cd kernel
           make O=out ARCH=arm64 ginkgo_defconfig
 
-      - name: Fix config (NO PROMPT / NO FREEZE)
+      - name: Force non-interactive config fix
         run: |
           cd kernel
           yes "" | make O=out ARCH=arm64 olddefconfig
@@ -57,9 +62,9 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip
 
-      - name: Check output
+      - name: Verify build output
         run: |
-          ls -lah kernel/out/arch/arm64/boot || true
+          find kernel/out/arch/arm64/boot -type f || true
 
       - name: Clone AnyKernel3
         run: |
@@ -70,13 +75,13 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || \
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
 
-      - name: Pack flashable zip
+      - name: Create flashable zip
         run: |
           cd AnyKernel3
-          zip -r9 ../KernelSU-Ginkgo-Stable.zip ./*
+          zip -r9 ../Kernel-Ginkgo-Stable.zip ./*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-Ginkgo-Stable
-          path: KernelSU-Ginkgo-Stable.zip
+          path: Kernel-Ginkgo-Stable.zip
