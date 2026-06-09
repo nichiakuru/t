@@ -9,6 +9,7 @@ jobs:
 
     env:
       GIT_TERMINAL_PROMPT: 0
+      GIT_ASKPASS: /bin/true
 
     steps:
       - name: Install dependencies
@@ -17,39 +18,47 @@ jobs:
           sudo apt install -y \
             git curl zip unzip wget bc bison flex \
             build-essential libssl-dev libelf-dev \
-            python3 clang lld llvm
+            python3 clang llvm lld
 
-      - name: Clone stable kernel (LineageOS ginkgo)
+      # =========================
+      # FIXED CLONE (NO AUTH PROMPT EVER)
+      # =========================
+      - name: Clone kernel (FORCED NO AUTH MODE)
         run: |
-          git config --global credential.helper ""
-          git config --global --unset http.extraheader || true
+          git -c credential.helper= \
+              -c core.askPass= \
+              clone --depth=1 -b lineage-18.1 \
+              https://github.com/LineageOS/android_kernel_xiaomi_ginkgo.git kernel
 
-          git clone --depth=1 -b lineage-18.1 \
-            https://github.com/LineageOS/android_kernel_xiaomi_ginkgo.git kernel
-
-      - name: Setup directory
+      - name: Setup build folder
         run: |
           cd kernel
           mkdir -p out
 
-      - name: Export build variables
+      - name: Export build env
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "SUBARCH=arm64" >> $GITHUB_ENV
           echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=runner" >> $GITHUB_ENV
 
+      # =========================
+      # DEFCONFIG SAFE MODE
+      # =========================
       - name: Load defconfig
         run: |
           cd kernel
           make O=out ARCH=arm64 ginkgo_defconfig
 
-      - name: Force non-interactive config fix
+      - name: Fix kconfig (NO INTERACTIVE LOOP)
         run: |
           cd kernel
           yes "" | make O=out ARCH=arm64 olddefconfig
 
-      - name: Build kernel (LLVM STABLE)
+      # =========================
+      # BUILD KERNEL (LLVM ONLY - STABLE)
+      # =========================
+      - name: Build kernel
         run: |
           cd kernel
           make -j$(nproc) O=out \
@@ -62,10 +71,16 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip
 
-      - name: Verify build output
+      # =========================
+      # CHECK OUTPUT
+      # =========================
+      - name: Verify output
         run: |
           find kernel/out/arch/arm64/boot -type f || true
 
+      # =========================
+      # ANYKERNEL PACKAGING
+      # =========================
       - name: Clone AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
@@ -80,6 +95,9 @@ jobs:
           cd AnyKernel3
           zip -r9 ../Kernel-Ginkgo-Stable.zip ./*
 
+      # =========================
+      # UPLOAD RESULT
+      # =========================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
