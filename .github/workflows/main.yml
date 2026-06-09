@@ -12,100 +12,71 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            git bc bison flex build-essential \
-            libssl-dev libelf-dev \
-            clang llvm lld \
-            zip curl wget
+            git curl zip unzip wget bc bison flex \
+            build-essential libssl-dev libelf-dev \
+            python3 python3-pip \
+            clang lld llvm
 
-      - name: Clone kernel
+      - name: Clone stable kernel (LineageOS ginkgo)
         run: |
-          git clone --depth=1 -b ginkgo-q-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          git clone --depth=1 -b lineage-18.1 \
+            https://github.com/LineageOS/android_kernel_xiaomi_ginkgo.git kernel
 
-      # =========================
-      # FIX 1: FORCE CLEAN ENV
-      # =========================
-      - name: Clean environment
+      - name: Setup build environment
         run: |
           cd kernel
-          make mrproper || true
+          mkdir -p out
 
-      # =========================
-      # FIX 2: USE SAFE DEFCONFIG
-      # =========================
-      - name: Apply defconfig
+      - name: Export build variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=builder" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=github-actions" >> $GITHUB_ENV
+
+      - name: Generate defconfig (SAFE MODE)
         run: |
           cd kernel
-          make O=out ARCH=arm64 vendor/ginkgo-perf_defconfig
+          make O=out ARCH=arm64 ginkgo_defconfig
 
-          # FIX silent crash config
-          echo "CONFIG_LITTLE_CPU_MASK=\"0-3\"" >> out/.config
-          echo "CONFIG_BIG_CPU_MASK=\"4-7\"" >> out/.config
-
-          make O=out ARCH=arm64 olddefconfig KCONFIG_NONINTERACTIVE=1
-
-      # =========================
-      # FIX 3: DISABLE BROKEN DTC PARALLEL BUILD
-      # =========================
-      - name: Fix DTC build issue
+      - name: Fix config (NO PROMPT / NO FREEZE)
         run: |
           cd kernel
+          yes "" | make O=out ARCH=arm64 olddefconfig
 
-          # paksa dtc single-thread safer build
-          export MAKEFLAGS="-j1"
-
-      # =========================
-      # KernelSU
-      # =========================
-      - name: Add KernelSU
+      - name: Build kernel (LLVM STABLE)
         run: |
           cd kernel
-          curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
-
-      # =========================
-      # BUILD STABLE (clang locked)
-      # =========================
-      - name: Build kernel
-        run: |
-          cd kernel
-
-          make -j1 O=out \
+          make -j$(nproc) O=out \
             ARCH=arm64 \
+            LLVM=1 LLVM_IAS=1 \
             CC=clang \
-            LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="-Wno-error -w"
+            STRIP=llvm-strip
 
-      # =========================
-      # OUTPUT CHECK
-      # =========================
       - name: Check output
         run: |
-          find kernel/out/arch/arm64/boot -type f || true
+          ls -lah kernel/out/arch/arm64/boot || true
 
-      # =========================
-      # PACK
-      # =========================
       - name: Clone AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
       - name: Copy kernel image
         run: |
-          cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || true
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || \
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
 
-      - name: Zip kernel
+      - name: Pack flashable zip
         run: |
           cd AnyKernel3
-          zip -r9 ../KernelSU-Ginkgo.zip ./*
+          zip -r9 ../KernelSU-Ginkgo-Stable.zip ./*
 
-      - name: Upload
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KernelSU-Ginkgo
-          path: KernelSU-Ginkgo.zip
+          name: Kernel-Ginkgo-Stable
+          path: KernelSU-Ginkgo-Stable.zip
