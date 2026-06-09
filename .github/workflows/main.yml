@@ -22,13 +22,13 @@ jobs:
       # =========================
       # 2. CLONE KERNEL
       # =========================
-      - name: Clone kernel source
+      - name: Clone kernel
         run: |
           git clone --depth=1 -b MiuiR-WIP \
           https://github.com/kutemeikito/android_kernel_xiaomi_ginkgo.git kernel
 
       # =========================
-      # 3. KERNELSU INSTALL
+      # 3. ADD KERNELSU
       # =========================
       - name: Add KernelSU
         run: |
@@ -36,31 +36,24 @@ jobs:
           curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
 
       # =========================
-      # 4. DEFCONFIG (FORCE NON-INTERACTIVE SAFE)
+      # 4. DEFCONFIG (NO INTERACTIVE FIX)
       # =========================
       - name: Defconfig
         run: |
           cd kernel
 
+          # generate base config
           make O=out ARCH=arm64 vendor/ginkgo-stock_defconfig
 
-          # FIX: prevent interactive kconfig crash
-          make O=out ARCH=arm64 olddefconfig \
-            KCONFIG_NONINTERACTIVE=1 \
-            KCONFIG_AUTOANSWER=y
+          # IMPORTANT FIX: remove problematic Kconfig options BEFORE re-eval
+          sed -i '/LITTLE_CPU_MASK/d' out/.config || true
+          sed -i '/BIG_CPU_MASK/d' out/.config || true
+
+          # force clean re-evaluation without prompts
+          yes "" | make O=out ARCH=arm64 oldconfig
 
       # =========================
-      # 5. PATCH BROKEN CPU MASK (FIX YOUR ERROR)
-      # =========================
-      - name: Fix CPU mask config
-        run: |
-          cd kernel
-
-          echo 'CONFIG_LITTLE_CPU_MASK="0-3"' >> out/.config || true
-          echo 'CONFIG_BIG_CPU_MASK="4-7"' >> out/.config || true
-
-      # =========================
-      # 6. BUILD KERNEL (STABLE GCC MODE)
+      # 5. BUILD
       # =========================
       - name: Build kernel
         run: |
@@ -69,40 +62,39 @@ jobs:
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCONFIG_NONINTERACTIVE=1
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       # =========================
-      # 7. CHECK OUTPUT
+      # 6. CHECK OUTPUT
       # =========================
       - name: Check output
         run: |
           ls -lah kernel/out/arch/arm64/boot || true
 
       # =========================
-      # 8. ANYKERNEL3
+      # 7. ANYKERNEL3
       # =========================
       - name: Clone AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-      - name: Copy kernel image
+      - name: Copy Image
         run: |
           cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || true
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/ 2>/dev/null || true
 
       # =========================
-      # 9. ZIP OUTPUT
+      # 8. ZIP
       # =========================
-      - name: Build zip
+      - name: Make zip
         run: |
           cd AnyKernel3
           zip -r9 ../KernelSU-Ginkgo-MIUI.zip ./*
 
       # =========================
-      # 10. UPLOAD
+      # 9. UPLOAD
       # =========================
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: KernelSU-Ginkgo-MIUI
