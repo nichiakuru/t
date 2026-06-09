@@ -1,4 +1,4 @@
-name: KG
+name: K
 
 on:
   workflow_dispatch:
@@ -9,20 +9,18 @@ jobs:
 
     steps:
       # =========================
-      # 1. DEPENDENCIES (FIX STABILITY)
+      # 1. DEPENDENCIES
       # =========================
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-            git curl zip unzip \
-            bc bison flex make \
-            libssl-dev libelf-dev \
-            python3 \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+            git curl zip unzip bc bison flex \
+            build-essential libssl-dev libelf-dev \
+            python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       # =========================
-      # 2. CLONE KERNEL (MIUI BASE)
+      # 2. CLONE KERNEL
       # =========================
       - name: Clone kernel source
         run: |
@@ -30,7 +28,7 @@ jobs:
           https://github.com/kutemeikito/android_kernel_xiaomi_ginkgo.git kernel
 
       # =========================
-      # 3. ADD KERNELSU
+      # 3. KERNELSU INSTALL
       # =========================
       - name: Add KernelSU
         run: |
@@ -38,36 +36,41 @@ jobs:
           curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
 
       # =========================
-      # 4. SET TOOLCHAIN PATH
-      # (GCC STABLE FOR KERNEL 4.14)
+      # 4. DEFCONFIG (FORCE NON-INTERACTIVE SAFE)
       # =========================
-      - name: Setup toolchain env
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-
-      # =========================
-      # 5. DEFCONFIG (IMPORTANT FIX)
-      # =========================
-      - name: Generate defconfig
+      - name: Defconfig
         run: |
           cd kernel
+
           make O=out ARCH=arm64 vendor/ginkgo-stock_defconfig
 
+          # FIX: prevent interactive kconfig crash
+          make O=out ARCH=arm64 olddefconfig \
+            KCONFIG_NONINTERACTIVE=1 \
+            KCONFIG_AUTOANSWER=y
+
       # =========================
-      # 6. BUILD KERNEL (NO CLANG ERROR FIX)
+      # 5. PATCH BROKEN CPU MASK (FIX YOUR ERROR)
+      # =========================
+      - name: Fix CPU mask config
+        run: |
+          cd kernel
+
+          echo 'CONFIG_LITTLE_CPU_MASK="0-3"' >> out/.config || true
+          echo 'CONFIG_BIG_CPU_MASK="4-7"' >> out/.config || true
+
+      # =========================
+      # 6. BUILD KERNEL (STABLE GCC MODE)
       # =========================
       - name: Build kernel
         run: |
           cd kernel
+
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCFLAGS="-Wno-error" \
-            CFLAGS="-Wno-error"
+            KCONFIG_NONINTERACTIVE=1
 
       # =========================
       # 7. CHECK OUTPUT
@@ -77,7 +80,7 @@ jobs:
           ls -lah kernel/out/arch/arm64/boot || true
 
       # =========================
-      # 8. ANYKERNEL3 PACK
+      # 8. ANYKERNEL3
       # =========================
       - name: Clone AnyKernel3
         run: |
@@ -89,15 +92,15 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/ 2>/dev/null || true
 
       # =========================
-      # 9. ZIP FLASHABLE
+      # 9. ZIP OUTPUT
       # =========================
-      - name: Build flashable zip
+      - name: Build zip
         run: |
           cd AnyKernel3
           zip -r9 ../KernelSU-Ginkgo-MIUI.zip ./*
 
       # =========================
-      # 10. UPLOAD RESULT
+      # 10. UPLOAD
       # =========================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
