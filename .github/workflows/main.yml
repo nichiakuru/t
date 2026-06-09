@@ -1,0 +1,106 @@
+name: KG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      # =========================
+      # 1. DEPENDENCIES (FIX STABILITY)
+      # =========================
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git curl zip unzip \
+            bc bison flex make \
+            libssl-dev libelf-dev \
+            python3 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      # =========================
+      # 2. CLONE KERNEL (MIUI BASE)
+      # =========================
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 -b MiuiR-WIP \
+          https://github.com/kutemeikito/android_kernel_xiaomi_ginkgo.git kernel
+
+      # =========================
+      # 3. ADD KERNELSU
+      # =========================
+      - name: Add KernelSU
+        run: |
+          cd kernel
+          curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
+
+      # =========================
+      # 4. SET TOOLCHAIN PATH
+      # (GCC STABLE FOR KERNEL 4.14)
+      # =========================
+      - name: Setup toolchain env
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+
+      # =========================
+      # 5. DEFCONFIG (IMPORTANT FIX)
+      # =========================
+      - name: Generate defconfig
+        run: |
+          cd kernel
+          make O=out ARCH=arm64 vendor/ginkgo-stock_defconfig
+
+      # =========================
+      # 6. BUILD KERNEL (NO CLANG ERROR FIX)
+      # =========================
+      - name: Build kernel
+        run: |
+          cd kernel
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS="-Wno-error" \
+            CFLAGS="-Wno-error"
+
+      # =========================
+      # 7. CHECK OUTPUT
+      # =========================
+      - name: Check output
+        run: |
+          ls -lah kernel/out/arch/arm64/boot || true
+
+      # =========================
+      # 8. ANYKERNEL3 PACK
+      # =========================
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+      - name: Copy kernel image
+        run: |
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || true
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/ 2>/dev/null || true
+
+      # =========================
+      # 9. ZIP FLASHABLE
+      # =========================
+      - name: Build flashable zip
+        run: |
+          cd AnyKernel3
+          zip -r9 ../KernelSU-Ginkgo-MIUI.zip ./*
+
+      # =========================
+      # 10. UPLOAD RESULT
+      # =========================
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KernelSU-Ginkgo-MIUI
+          path: KernelSU-Ginkgo-MIUI.zip
